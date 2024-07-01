@@ -3,7 +3,7 @@ package converter
 import (
 	"fmt"
 	"strings"
-
+	
 	"github.com/LinkinStars/baileys/internal/parsing"
 )
 
@@ -13,12 +13,12 @@ var (
 		"float64":    "double",
 		"complex64":  "double",
 		"complex128": "double",
-		"int":        "int32",
+		"int":        "int64",
 		"int8":       "int32",
 		"int16":      "int32",
 		"int32":      "int32",
 		"int64":      "int64",
-		"uint":       "uint32",
+		"uint":       "uint64",
 		"uint8":      "uint32",
 		"uint16":     "uint32",
 		"uint32":     "uint32",
@@ -42,10 +42,11 @@ type PBFlat struct {
 
 // PBField pb field struct
 type PBField struct {
-	Type    string
-	Name    string
-	Comment string
-	Index   int
+	Type     string
+	Name     string
+	Comment  string
+	Index    int
+	Optional bool // pb字段是否可选
 }
 
 // GoStruct2PB convert golang struct to Protocol Buffers
@@ -58,11 +59,18 @@ func GoStruct2PB(structList []*parsing.StructFlat) (pbList []*PBFlat) {
 			PBFieldList: make([]*PBField, 0),
 		}
 		for idx, field := range s.Fields {
+			tagName := field.GetFieldNameFromTags()
 			pbField := &PBField{
-				Name:    field.Name,
+				Name:    tagName,
 				Type:    GoType2PB(field.Type),
 				Comment: field.Comment,
 				Index:   idx + 1,
+				Optional: field.Optional(
+					// func() bool {
+					// 	return strings.Contains(field.Tag, "omitempty") || strings.Contains(field.Tag,
+					// 		"required") || field.PointerOptional
+					// },
+				),
 			}
 			pbFlat.PBFieldList = append(pbFlat.PBFieldList, pbField)
 		}
@@ -76,6 +84,7 @@ func GoStruct2PB(structList []*parsing.StructFlat) (pbList []*PBFlat) {
 // .proto    Go
 // double -> float64
 // float -> float32
+// int -> int64
 // int32 -> int32
 // int64 -> int64
 // uint32 -> uint32

@@ -7,7 +7,7 @@ import (
 	"go/token"
 	"log"
 	"strings"
-
+	
 	"github.com/LinkinStars/baileys/internal/util"
 )
 
@@ -26,10 +26,21 @@ type StructFlat struct {
 
 // StructField 结构体字段
 type StructField struct {
-	Name    string
-	Type    string
-	Comment string
-	Tag     string
+	Name            string
+	Type            string
+	Comment         string
+	Tag             string
+	PointerOptional bool
+}
+
+func (s *StructField) Optional(optionals ...func() bool) bool {
+	for _, optional := range optionals {
+		if ok := optional(); !ok {
+			return false
+		}
+	}
+	
+	return true
 }
 
 // GetTag 获取tag
@@ -59,6 +70,41 @@ func (s *StructField) GetJsonTag() string {
 	return tag
 }
 
+func (s *StructField) GetFieldNameFromTags() string {
+	jsonf := func() string {
+		tag := s.GetTag("json")
+		// ignore json tag is `json:"-"`
+		if tag == "-" {
+			return ""
+		}
+		if len(tag) == 0 {
+			return s.Name
+		}
+		tag = strings.TrimSuffix(tag, ",omitempty")
+		return tag
+	}
+	
+	formf := func() string {
+		tag := s.GetTag("form")
+		// ignore form tag is `form:"-"`
+		if tag == "-" {
+			return ""
+		}
+		if len(tag) == 0 {
+			return s.Name
+		}
+		return tag
+	}
+	
+	if ans := jsonf(); ans != "" {
+		return ans
+	} else if ans := formf(); ans != "" {
+		return ans
+	}
+	
+	return ""
+}
+
 // StructParser golang struct 解析器
 func StructParser(src string) (structList []*StructFlat, err error) {
 	src = addPackageIfNotExist(src)
@@ -67,7 +113,7 @@ func StructParser(src string) (structList []*StructFlat, err error) {
 	if err != nil {
 		return nil, err
 	}
-
+	
 	structList = make([]*StructFlat, 0)
 	for _, node := range f.Decls {
 		switch node.(type) {
@@ -81,13 +127,14 @@ func StructParser(src string) (structList []*StructFlat, err error) {
 				switch spec.(type) {
 				case *ast.TypeSpec:
 					typeSpec := spec.(*ast.TypeSpec)
-
+					
 					// 获取结构体名称
 					structFlat := &StructFlat{Name: typeSpec.Name.Name, Comment: structComment}
 					structFlat.Fields = make([]*StructField, 0)
 					log.Printf("read struct %s %s\n", typeSpec.Name.Name, structComment)
-
+					
 					switch typeSpec.Type.(type) {
+					case *ast.StarExpr:
 					case *ast.StructType:
 						structType := typeSpec.Type.(*ast.StructType)
 						for _, reField := range structType.Fields.List {
@@ -117,15 +164,25 @@ func StructParser(src string) (structList []*StructFlat, err error) {
 								} else {
 									log.Printf("undefined reField type %+v", reField.Type)
 								}
+							case *ast.StarExpr:
+								v := pointerValue(reField.Type.(*ast.StarExpr))
+								if ident, ok := v.(*ast.Ident); ok {
+									structField.Type = ident.Name
+									structField.PointerOptional = true // 指针类型proto可选
+								} else {
+									log.Printf("not ident: %+v", v)
+								}
+							
 							default:
 								log.Printf("undefined reField type %+v", reField.Type)
 							}
-
+							
 							for _, name := range reField.Names {
 								structField.Name = name.Name
 								structField.Comment = strings.TrimSpace(reField.Doc.Text())
 								structFlat.Fields = append(structFlat.Fields, structField)
-								log.Printf("name=%s type=%s comment=%s tag=%s\n", name.Name, structField.Type, structField.Comment, structField.Tag)
+								log.Printf("name=%s type=%s comment=%s tag=%s\n", name.Name, structField.Type,
+									structField.Comment, structField.Tag)
 							}
 						}
 					}
@@ -135,6 +192,14 @@ func StructParser(src string) (structList []*StructFlat, err error) {
 		}
 	}
 	return structList, nil
+}
+
+func pointerValue(expr *ast.StarExpr) ast.Expr {
+	ans := expr.X
+	if se, ok := ans.(*ast.StarExpr); ok {
+		ans = pointerValue(se)
+	}
+	return ans
 }
 
 func addPackageIfNotExist(src string) string {

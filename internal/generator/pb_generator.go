@@ -4,20 +4,33 @@ import (
 	"bytes"
 	"log"
 	"text/template"
-
+	
 	"github.com/LinkinStars/baileys/internal/converter"
 )
 
 const (
 	pbTpl = `{{if and (ne .Comment "")}}// {{ .Comment}}
-{{end -}}message {{.Name}} { {{range .PBFieldList}}
-    {{if and (ne .Comment "") -}}
+{{end -}}message {{.Name}} {
+	{{range .PBFieldList}}
+	{{- if not .Optional -}}
+	
+	{{- if and (ne .Comment "") -}}
     // {{ .Comment}}
     {{ .Type}} {{.Name}} = {{ .Index }};
-    {{- else -}}
+    {{ else -}}
     {{ .Type}} {{.Name}} = {{ .Index }};
-    {{- end}}
-{{- end}}
+    {{ end -}}
+	
+	{{- else -}}
+	
+	{{- if and (ne .Comment "") -}}
+    // {{ .Comment}}
+    optional {{ .Type}} {{.Name}} = {{ .Index }};
+    {{ else -}}
+    optional {{ .Type}} {{.Name}} = {{ .Index }};
+    {{ end -}}
+	{{- end -}}
+	{{- end }}
 }
 `
 )
@@ -28,7 +41,7 @@ func GenPBMessage(flatList []*converter.PBFlat) (res string, err error) {
 	if err != nil {
 		log.Printf("could not parse template: %s\n", err.Error())
 		return "", err
-
+		
 	}
 	resBytes := bytes.NewBufferString("")
 	for _, flat := range flatList {
